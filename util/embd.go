@@ -9,13 +9,16 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 )
 
 var (
-	d      = make(DataFiles)
-	tzRoot = "/usr/share/zoneinfo/" // trailing slash is required
+	d          = make(DataFiles)
+	tzRoot     = "/usr/share/zoneinfo/" // trailing slash is required
+	fileIgnore = regexp.MustCompile("^[a-z]")
+	pathIgnore = regexp.MustCompile("/right/|/posix/")
 )
 
 type DataFiles map[string]string // map of varname:path
@@ -38,11 +41,13 @@ func visit(path string, f os.FileInfo, err error) error {
 		return nil
 	}
 
-	if strings.Contains(path, "/posix/") {
+	if fileIgnore.MatchString(filepath.Base(path)) {
+		fmt.Printf("skipping file: %s\n", path)
 		return nil
 	}
 
-	if strings.Contains(path, "/right/") {
+	if pathIgnore.MatchString(path) {
+		fmt.Printf("skipping file: %s\n", path)
 		return nil
 	}
 
@@ -91,7 +96,7 @@ loop:
 
 		for _, efile := range contents.Files {
 			if os.SameFile(efile.FileInfo, f.FileInfo) {
-				contents.Aliases[efile.VarName] = f.VarName
+				contents.Aliases[f.VarName] = efile.VarName
 				fmt.Printf("added alias: %s = %s\n", efile.VarName, f.VarName)
 				continue loop
 			}
@@ -177,9 +182,9 @@ var (
 		"{{.VarName}}": []byte("{{range .DataFragments}}{{.}}{{end}}"),
 {{end}}`[1:] + `
 	}
-	aliases = map[string][]byte {
+	aliases = map[string]string {
 {{range $k, $v := .Aliases}}
-		"{{$k}}": tzdata["{{$v}}"],
+		"{{$k}}": "{{$v}}",
 {{end}}
 	}
 )`
