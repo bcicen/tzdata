@@ -4,6 +4,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -71,7 +73,7 @@ func visit(path string, f os.FileInfo, err error) error {
 
 func main() {
 	filepath.Walk(tzRoot, visit)
-	err := Embed(d, "main", "tzdata.go")
+	err := Embed(d, "tzdata", "tzdata.go")
 	if err != nil {
 		panic(err)
 	}
@@ -140,14 +142,43 @@ func NewFile(varname, path string) (File, error) {
 	}
 
 	ch := make(chan string)
+
 	go func() {
 		defer f.Close()
 
 		r := bufio.NewReader(f)
 
+		var b bytes.Buffer
+		gz := gzip.NewWriter(&b)
 		buf := [20]byte{}
+
+	gzloop:
 		for {
 			n, err := io.ReadFull(r, buf[:])
+			switch err {
+			case io.ErrUnexpectedEOF:
+				gz.Write(buf[:n])
+				fallthrough
+			case io.EOF:
+				break gzloop
+			case nil:
+				gz.Write(buf[:])
+			default:
+				panic(fmt.Errorf("%s: %s", path, err))
+			}
+		}
+
+		if err := gz.Flush(); err != nil {
+			panic(err)
+		}
+		if err := gz.Close(); err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("flushed %s\n", path)
+
+		for {
+			n, err := b.Read(buf[:])
 			switch err {
 			case io.ErrUnexpectedEOF:
 				ch <- GoEscaped(buf[:n])
@@ -162,6 +193,7 @@ func NewFile(varname, path string) (File, error) {
 			}
 		}
 	}()
+
 	return File{
 		Path:          path,
 		VarName:       varname,

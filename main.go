@@ -1,72 +1,67 @@
 //go:generate go run util/embd.go
 
-package main
+package tzdata
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
-	"os"
-	"sort"
+	"io"
 	"time"
-
-	"github.com/dexyk/stringosim"
 )
 
-type TZData struct {
-	Name     string
-	Location *time.Location
-}
+// LocationNames contains all available timezone names
+var LocationNames = allLocations()
 
-func main() {
-	now := time.Now()
-	name, loc, err := GetTZData(os.Args[1])
-	if err != nil {
-		panic(err)
+// Load a timezone Location by name from the embedded tz database
+func Load(name string) (*time.Location, error) {
+	name = resolveAlias(name)
+	if _, ok := tzdata[name]; !ok {
+		return nil, fmt.Errorf("unknown timezone: %s", name)
 	}
-	fmt.Println(name)
-	fmt.Println(now.In(loc))
-}
 
-func GetTZData(search string) (name string, loc *time.Location, err error) {
-	var curDistance int
-	var curMatchTz string
+	rbuf := bytes.NewBuffer(tzdata[name])
+	gz, err := gzip.NewReader(rbuf)
+	if err != nil {
+		return nil, err
+	}
+	defer gz.Close()
 
-	for s, tzname := range tzmap {
-		dist := stringosim.Levenshtein([]rune(search), []rune(s),
-			stringosim.LevenshteinSimilarityOptions{
-				InsertCost:      1,
-				DeleteCost:      3,
-				SubstituteCost:  5,
-				CaseInsensitive: true,
-			})
+	chunk := [20]byte{}
+	var wbuf bytes.Buffer
 
-		if name == "" || dist < curDistance {
-			name = s
-			curDistance = dist
-			curMatchTz = tzname
+gzloop:
+	for {
+		n, err := gz.Read(chunk[:])
+		switch err {
+		case io.ErrUnexpectedEOF:
+			wbuf.Write(chunk[:n])
+			fallthrough
+		case io.EOF:
+			break gzloop
+		case nil:
+			wbuf.Write(chunk[:])
+		default:
+			return nil, err
 		}
 	}
 
-	if curDistance > 8 {
-		return name, loc, fmt.Errorf("location not found")
+	return time.LoadLocationFromTZData(name, wbuf.Bytes())
+}
+
+func allLocations() (a []string) {
+	for k, _ := range tzdata {
+		a = append(a, k)
 	}
-
-	loc, err = load(curMatchTz)
-
-	return name, loc, err
+	for k, _ := range aliases {
+		a = append(a, k)
+	}
+	return a
 }
 
 func resolveAlias(name string) string {
 	if aname, ok := aliases[name]; ok {
-		fmt.Printf("%s->%s\n", name, aname)
 		return resolveAlias(aname)
 	}
 	return name
-}
-
-func load(name string) (*time.Location, error) {
-	name = resolveAlias(name)
-	if data, ok := tzdata[name]; ok {
-		return time.LoadLocationFromTZData(name, data)
-	}
-	return nil, fmt.Errorf("unknown timezone: %s", name)
 }
