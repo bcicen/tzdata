@@ -38,6 +38,14 @@ type File struct {
 	DataFragments <-chan string
 }
 
+func main() {
+	filepath.Walk(tzRoot, visit)
+	err := Embed(d, "tzdata", "tzdata.go")
+	if err != nil {
+		panic(err)
+	}
+}
+
 func visit(path string, f os.FileInfo, err error) error {
 	if f.IsDir() {
 		return nil
@@ -69,14 +77,6 @@ func visit(path string, f os.FileInfo, err error) error {
 	fmt.Printf("found tzdata path: %s\n", path)
 
 	return nil
-}
-
-func main() {
-	filepath.Walk(tzRoot, visit)
-	err := Embed(d, "tzdata", "tzdata.go")
-	if err != nil {
-		panic(err)
-	}
 }
 
 func Embed(files DataFiles, pkg, outPath string) error {
@@ -148,26 +148,27 @@ func NewFile(varname, path string) (File, error) {
 
 		r := bufio.NewReader(f)
 
-		var b bytes.Buffer
-		gz := gzip.NewWriter(&b)
-		buf := [20]byte{}
+		var outbuf bytes.Buffer
+		var inbuf bytes.Buffer
+		gz := gzip.NewWriter(&outbuf)
 
-	gzloop:
+	readloop:
 		for {
-			n, err := io.ReadFull(r, buf[:])
+			b, err := r.ReadByte()
 			switch err {
 			case io.ErrUnexpectedEOF:
-				gz.Write(buf[:n])
+				inbuf.WriteByte(b)
 				fallthrough
 			case io.EOF:
-				break gzloop
+				break readloop
 			case nil:
-				gz.Write(buf[:])
+				inbuf.WriteByte(b)
 			default:
 				panic(fmt.Errorf("%s: %s", path, err))
 			}
 		}
 
+		gz.Write(inbuf.Bytes())
 		if err := gz.Flush(); err != nil {
 			panic(err)
 		}
@@ -176,9 +177,10 @@ func NewFile(varname, path string) (File, error) {
 		}
 
 		fmt.Printf("flushed %s\n", path)
+		buf := [10]byte{}
 
 		for {
-			n, err := b.Read(buf[:])
+			n, err := outbuf.Read(buf[:])
 			switch err {
 			case io.ErrUnexpectedEOF:
 				ch <- GoEscaped(buf[:n])

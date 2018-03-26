@@ -10,8 +10,24 @@ import (
 	"time"
 )
 
-// LocationNames contains all available timezone names
-var LocationNames = allLocations()
+var (
+	Built = ""
+	// LocationNames contains all available timezone names
+	LocationNames = allLocations()
+
+	loaded = make(map[string]*time.Location)
+)
+
+// Uncompress and load all timezone data into memory for quicker access
+func Preload() {
+	for k, _ := range tzdata {
+		loc, err := Load(k)
+		if err != nil {
+			panic(err)
+		}
+		loaded[k] = loc
+	}
+}
 
 // Load a timezone Location by name from the embedded tz database
 func Load(name string) (*time.Location, error) {

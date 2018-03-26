@@ -1,3 +1,5 @@
+[![GoDoc](https://godoc.org/github.com/bcicen/tzdata?status.svg)](https://godoc.org/github.com/bcicen/tzdata)
+
 # tzdata
 
 Embeddable timezone database for Go projects
